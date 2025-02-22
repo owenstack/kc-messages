@@ -100,3 +100,11 @@ export async function tfaSignIn(password: string): Promise<AuthResponse> {
         }
     }
 }
+
+export async function userProfile() {
+    try {
+        return {data: await client.getMe()}
+    } catch (error) {
+        return {error: error instanceof Error ? error.message : 'Failed to get user profile'};
+    }
+}
