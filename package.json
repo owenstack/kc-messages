@@ -29,6 +29,7 @@
 		"sonner": "^2.0.1",
 		"tailwind-merge": "^3.0.1",
 		"tailwindcss-animate": "^1.0.7",
+		"telegraf": "^4.16.3",
 		"telegram": "^2.26.22",
 		"zod": "^3.24.2"
 	},

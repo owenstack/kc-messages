@@ -4,13 +4,29 @@ import { env } from "@/lib/env";
 import { TelegramClient } from "telegram";
 import { StoreSession } from "telegram/sessions";
 
-const session = new StoreSession("sessions");
-const client = new TelegramClient(
-    session,
-    env.TELEGRAM_APP_ID,
-    env.TELEGRAM_APP_HASH,
-    { connectionRetries: 5 },
-);
+let clientInstance: TelegramClient | null = null
+
+export async function getClient() {
+    if (!clientInstance) {
+      const session = new StoreSession("sessions");
+      clientInstance = new TelegramClient(
+        session,
+        env.TELEGRAM_APP_ID,
+        env.TELEGRAM_APP_HASH,
+        { connectionRetries: 5 }
+      );
+      
+      if (!clientInstance.connected) {
+        await clientInstance.connect();
+      }
+    }
+    
+    if (!(await clientInstance.checkAuthorization())) {
+      throw new Error("Not authorized");
+    }
+    
+    return clientInstance;
+  }
 
 type AuthResponse = {
     success: boolean;
@@ -20,13 +36,13 @@ type AuthResponse = {
 }
 
 export async function authorize() {
-    await client.connect();
-    return await client.checkAuthorization();
+    const client = await getClient()
+    return client.checkAuthorization()
 }
 
 export async function startLogin(phone: string): Promise<AuthResponse> {
     try {
-        await client.connect();
+        const client = await getClient()
         await client.sendCode(
             {apiHash: env.TELEGRAM_APP_HASH, apiId: env.TELEGRAM_APP_ID}, 
             phone
@@ -45,8 +61,8 @@ export async function startLogin(phone: string): Promise<AuthResponse> {
 
 export async function signInWithCode(phone: string, code: string): Promise<AuthResponse> {
     try {
-        await client.connect();
-        const result = await client.signInUser(
+        const client = await getClient()
+        await client.signInUser(
             {apiHash: env.TELEGRAM_APP_HASH, apiId: env.TELEGRAM_APP_ID},
             {
             phoneNumber: phone,
@@ -80,6 +96,7 @@ export async function signInWithCode(phone: string, code: string): Promise<AuthR
 
 export async function tfaSignIn(password: string): Promise<AuthResponse> {
     try {
+        const client = await getClient()
         await client.signInWithPassword({apiHash: env.TELEGRAM_APP_HASH, apiId: env.TELEGRAM_APP_ID}, {
             password: async () => Promise.resolve(password),
             onError: async (err) => {
@@ -103,6 +120,7 @@ export async function tfaSignIn(password: string): Promise<AuthResponse> {
 
 export async function userProfile() {
     try {
+        const client = await getClient()
         return {data: await client.getMe()}
     } catch (error) {
         return {error: error instanceof Error ? error.message : 'Failed to get user profile'};
