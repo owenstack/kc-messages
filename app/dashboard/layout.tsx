@@ -10,10 +10,10 @@ export default async function DashboardLayout({
 		redirect("/login");
 	}
 	return (
-<div className="flex gap-[2%] flex-wrap content-start h-screen">
-  <NavBar />
-  <Sidebar />
-  <div className="grow h-[90%]">{children}</div>
-</div>
-    )
+		<div className="flex gap-[2%] flex-wrap content-start h-screen">
+			<NavBar />
+			<Sidebar />
+			<div className="grow h-[90%]">{children}</div>
+		</div>
+	);
 }
