@@ -20,6 +20,7 @@ import { PhoneInput } from "../ui/phone-input";
 export function StartLogin() {
 	const [step, setStep] = useState<"phone" | "code" | "2fa">("phone");
 	const [phone, setPhone] = useState("");
+	const [tempToken, setTempToken] = useState("");
 	const router = useRouter();
 
 	const handleSubmit = async (form: FormData) => {
@@ -34,14 +35,16 @@ export function StartLogin() {
 				}
 
 				setPhone(phoneNumber);
+				setTempToken(response.tempToken || "");
 				setStep("code");
 				toast.success(response.message);
 			} else if (step === "code") {
 				const code = form.get("code") as string;
-				const response = await signInWithCode(phone, code);
+				const response = await signInWithCode(tempToken, phone, code);
 
 				if (!response.success) {
 					if (response.needs2FA) {
+						setTempToken(response.tempToken || "");
 						setStep("2fa");
 						toast.info(response.message);
 						return;
@@ -53,7 +56,7 @@ export function StartLogin() {
 				toast.success(response.message);
 			} else if (step === "2fa") {
 				const password = form.get("password") as string;
-				const response = await tfaSignIn(password);
+				const response = await tfaSignIn(tempToken, password);
 				if (!response.success) {
 					toast.error(response.error);
 					return;

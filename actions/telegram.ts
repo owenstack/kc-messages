@@ -2,50 +2,65 @@
 
 import { env } from "@/lib/env";
 import { TelegramClient } from "telegram";
-import { StoreSession } from "telegram/sessions";
-
-let clientInstance: TelegramClient | null = null;
-
-export async function getClient() {
-	if (!clientInstance) {
-		const session = new StoreSession("sessions");
-		clientInstance = new TelegramClient(
-			session,
-			env.TELEGRAM_APP_ID,
-			env.TELEGRAM_APP_HASH,
-			{ connectionRetries: 5 },
-		);
-
-		if (!clientInstance.connected) {
-			await clientInstance.connect();
-		}
-	}
-
-	return clientInstance;
-}
+import { StringSession } from "telegram/sessions";
+import { nanoid } from "nanoid";
+import { getSessionString, setSessionString } from "./session";
+import { cookies } from "next/headers";
 
 type AuthResponse = {
 	success: boolean;
 	message?: string;
 	error?: string;
 	needs2FA?: boolean;
+	tempToken?: string;
 };
 
-export async function authorize() {
-	const client = await getClient();
-	return client.checkAuthorization();
+async function createClient(sessionString = ""): Promise<TelegramClient> {
+	const session = new StringSession(sessionString);
+	const client = new TelegramClient(
+		session,
+		env.TELEGRAM_APP_ID,
+		env.TELEGRAM_APP_HASH,
+		{
+			connectionRetries: 5,
+		},
+	);
+	await client.connect();
+	return client;
+}
+
+export async function authorize(): Promise<boolean> {
+	const sessionToken = (await cookies()).get("session_token")?.value;
+	if (!sessionToken) return false;
+
+	const sessionString = await getSessionString(sessionToken);
+	if (!sessionString) return false;
+
+	const client = await createClient(sessionString);
+	const isAuthorized = await client.checkAuthorization();
+	await client.disconnect();
+	return isAuthorized;
 }
 
 export async function startLogin(phone: string): Promise<AuthResponse> {
 	try {
-		const client = await getClient();
+		const client = await createClient();
 		await client.sendCode(
 			{ apiHash: env.TELEGRAM_APP_HASH, apiId: env.TELEGRAM_APP_ID },
 			phone,
 		);
+
+		const tempToken = nanoid();
+		const sessionString = client.session.save();
+		if (typeof sessionString !== "string") {
+			throw new Error("Session string is not a string");
+		}
+		await setSessionString(tempToken, sessionString, 300); // 5-minute TTL
+
 		return {
 			success: true,
 			message: "Login code sent to your Telegram app",
+			tempToken,
 		};
 	} catch (error) {
 		return {
@@ -54,37 +69,46 @@ export async function startLogin(phone: string): Promise<AuthResponse> {
 		};
 	}
 }
-
 export async function signInWithCode(
+	tempToken: string,
 	phone: string,
 	code: string,
 ): Promise<AuthResponse> {
 	try {
-		const client = await getClient();
+		const sessionString = await getSessionString(tempToken);
+		if (!sessionString) {
+			return { success: false, error: "Invalid or expired token" };
+		}
+
+		const client = await createClient(sessionString);
 		await client.signInUser(
 			{ apiHash: env.TELEGRAM_APP_HASH, apiId: env.TELEGRAM_APP_ID },
 			{
 				phoneNumber: phone,
 				phoneCode: async () => Promise.resolve(code),
-				onError: async (err) => {
-					if (err) {
-						return true;
-					}
-					return Promise.resolve(false);
-				},
+				onError: async (err) => err !== null,
 			},
 		);
+		const sessionToken = nanoid();
+		const newSessionString = client.session.save();
+		if (typeof newSessionString !== "string") {
+			throw new Error("Session string is not a string");
+		}
+		await setSessionString(sessionToken, newSessionString);
+		(await cookies()).set("session_token", sessionToken, {
+			httpOnly: true,
+			secure: true,
+		});
 
-		return {
-			success: true,
-			message: "Successfully signed in",
-		};
+		await client.disconnect();
+		return { success: true, message: "Successfully signed in" };
 	} catch (error) {
 		if (error instanceof Error && error.message.includes("2FA")) {
 			return {
 				success: false,
 				needs2FA: true,
 				message: "Please enter your 2FA password",
+				tempToken,
 			};
 		}
 		return {
@@ -94,25 +118,38 @@ export async function signInWithCode(
 	}
 }
 
-export async function tfaSignIn(password: string): Promise<AuthResponse> {
+export async function tfaSignIn(
+	tempToken: string,
+	password: string,
+): Promise<AuthResponse> {
 	try {
-		const client = await getClient();
+		const sessionString = await getSessionString(tempToken);
+		if (!sessionString) {
+			return { success: false, error: "Invalid or expired token" };
+		}
+
+		const client = await createClient(sessionString);
 		await client.signInWithPassword(
 			{ apiHash: env.TELEGRAM_APP_HASH, apiId: env.TELEGRAM_APP_ID },
 			{
 				password: async () => Promise.resolve(password),
-				onError: async (err) => {
-					if (err) {
-						return true;
-					}
-					return Promise.resolve(false);
-				},
+				onError: async (err) => err !== null,
 			},
 		);
-		return {
-			success: true,
-			message: "Successfully signed in",
-		};
+
+		const sessionToken = nanoid();
+		const newSessionString = client.session.save();
+		if (typeof newSessionString !== "string") {
+			throw new Error("Session string is not a string");
+		}
+		await setSessionString(sessionToken, newSessionString);
+		(await cookies()).set("session_token", sessionToken, {
+			httpOnly: true,
+			secure: true,
+		});
+
+		await client.disconnect();
+		return { success: true, message: "Successfully signed in" };
 	} catch (error) {
 		return {
 			success: false,
@@ -122,10 +159,19 @@ export async function tfaSignIn(password: string): Promise<AuthResponse> {
 }
 
 export async function userProfile() {
+	const sessionToken = (await cookies()).get("session_token")?.value;
+	if (!sessionToken) return { error: "Not authenticated" };
+
+	const sessionString = await getSessionString(sessionToken);
+	if (!sessionString) return { error: "Session not found" };
+
+	const client = await createClient(sessionString);
 	try {
-		const client = await getClient();
-		return { data: await client.getMe() };
+		const me = await client.getMe();
+		await client.disconnect();
+		return { data: me };
 	} catch (error) {
+		await client.disconnect();
 		return {
 			error:
 				error instanceof Error ? error.message : "Failed to get user profile",
@@ -138,14 +184,19 @@ export async function messageUsers(
 	usernames: string | string[],
 ) {
 	try {
+		const sessionToken = (await cookies()).get("session_token")?.value;
+		if (!sessionToken) return { error: "Not authenticated" };
+
+		const sessionString = await getSessionString(sessionToken);
+		if (!sessionString) return { error: "Session not found" };
+
+		const client = await createClient(sessionString);
 		// Ensure message is not causing recursion issues
 		// Limit message length if necessary
 		const safeMessage =
 			typeof message === "string"
 				? message.substring(0, 4000) // Limiting message length to prevent possible stack issues
 				: String(message);
-
-		const client = await getClient();
 		const users = Array.isArray(usernames) ? usernames : [usernames];
 
 		// Process usernames to ensure they're valid
