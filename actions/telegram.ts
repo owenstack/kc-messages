@@ -221,7 +221,7 @@ export async function messageUsers(
 				const result = await client.sendMessage(user, { message: safeMessage });
 				sentMessages.push(result);
 				// Delay to prevent hitting Telegram's rate limits
-				await delay(1500);
+				await delay(200);
 			} catch (userError) {
 				// Handle individual user errors without failing the entire batch
 				console.error(`Failed to send message to ${username}:`, userError);
