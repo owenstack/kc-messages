@@ -23,12 +23,11 @@ export function MessageCard() {
 	const [users, setUsers] = useState<string[]>([]);
 	const [usernameInput, setUsernameInput] = useState<string>("");
 	const [isSubmitting, setIsSubmitting] = useState(false);
+	const [sentUsers, setSentUsers] = useState<string[]>([]);
 
 	const addUsernames = (input: string) => {
 		if (!input.trim()) return;
 
-		// Safely split by commas or newlines and filter empty entries
-		// Using a simple split approach to avoid regex recursion issues
 		const parts = [];
 		let currentPart = "";
 
@@ -44,23 +43,20 @@ export function MessageCard() {
 			}
 		}
 
-		// Don't forget the last part
 		if (currentPart.trim()) {
 			parts.push(currentPart.trim());
 		}
 
-		// Limit the number of usernames to prevent issues
 		const newUsernames = parts.slice(0, 100);
 
 		setUsers((prev) => {
-			// Deduplicate while avoiding potential recursion in Set operations
 			const uniqueUsers = [...prev];
 			for (const name of newUsernames) {
 				if (!uniqueUsers.includes(name)) {
 					uniqueUsers.push(name);
 				}
 			}
-			return uniqueUsers.slice(0, 100); // Limit total usernames
+			return uniqueUsers.slice(0, 100);
 		});
 
 		setUsernameInput("");
@@ -73,44 +69,37 @@ export function MessageCard() {
 		try {
 			const text = await file.text();
 
-			// Limit file size to prevent issues
 			if (text.length > 100000) {
-				// ~100KB limit
 				toast.error("File too large. Please use a smaller file.");
 				e.target.value = "";
 				return;
 			}
 
-			// Try to parse as JSON if it's a JSON file
 			if (file.name.endsWith(".json")) {
 				try {
 					const data = JSON.parse(text);
-					// Handle different JSON formats
 					let extractedUsernames: string[] = [];
 
 					if (Array.isArray(data)) {
-						// If it's an array of strings
 						extractedUsernames = data
 							.filter((item) => typeof item === "string" && item.trim() !== "")
 							.map((item) => String(item).trim())
-							.slice(0, 100); // Limit usernames
+							.slice(0, 100);
 					} else if (typeof data === "object" && data !== null) {
-						// If it's an object with username properties
 						extractedUsernames = Object.values(data)
 							.filter((item) => typeof item === "string" && item.trim() !== "")
 							.map((item) => String(item).trim())
-							.slice(0, 100); // Limit usernames
+							.slice(0, 100);
 					}
 
 					setUsers((prev) => {
-						// Deduplicate while avoiding potential recursion in Set operations
 						const uniqueUsers = [...prev];
 						for (const name of extractedUsernames) {
 							if (!uniqueUsers.includes(name)) {
 								uniqueUsers.push(name);
 							}
 						}
-						return uniqueUsers.slice(0, 100); // Limit total usernames
+						return uniqueUsers.slice(0, 100);
 					});
 
 					toast.success(
@@ -120,8 +109,6 @@ export function MessageCard() {
 					toast.error("Invalid JSON format");
 				}
 			} else {
-				// Handle as text file with one username per line
-				// Simple parsing to avoid regex recursion
 				const lines = [];
 				let currentLine = "";
 
@@ -137,22 +124,20 @@ export function MessageCard() {
 					}
 				}
 
-				// Don't forget the last line
 				if (currentLine.trim()) {
 					lines.push(currentLine.trim());
 				}
 
-				const extractedUsernames = lines.slice(0, 100); // Limit usernames
+				const extractedUsernames = lines.slice(0, 100);
 
 				setUsers((prev) => {
-					// Deduplicate while avoiding potential recursion in Set operations
 					const uniqueUsers = [...prev];
 					for (const name of extractedUsernames) {
 						if (!uniqueUsers.includes(name)) {
 							uniqueUsers.push(name);
 						}
 					}
-					return uniqueUsers.slice(0, 100); // Limit total usernames
+					return uniqueUsers.slice(0, 100);
 				});
 
 				toast.success(
@@ -160,11 +145,9 @@ export function MessageCard() {
 				);
 			}
 
-			// Reset the file input
 			e.target.value = "";
 		} catch (error) {
 			toast.error("Error reading file");
-			// Reset the file input
 			e.target.value = "";
 		}
 	};
@@ -173,8 +156,13 @@ export function MessageCard() {
 		setUsers(users.filter((u) => u !== username));
 	};
 
+	const removeAllUsers = () => {
+		setUsers([]);
+		toast.success("All usernames removed");
+	};
+
 	const submit = async (form: FormData) => {
-		if (isSubmitting) return; // Prevent multiple submissions
+		if (isSubmitting) return;
 
 		setIsSubmitting(true);
 
@@ -193,7 +181,15 @@ export function MessageCard() {
 				return;
 			}
 
-			const { data, error } = await messageUsers(message, users);
+			const newUsers = users.filter((user) => !sentUsers.includes(user));
+
+			if (newUsers.length === 0) {
+				toast.error("All selected users have already received this message");
+				setIsSubmitting(false);
+				return;
+			}
+
+			const { data, error } = await messageUsers(message, newUsers);
 
 			if (error) {
 				toast.error(error);
@@ -201,6 +197,7 @@ export function MessageCard() {
 				return;
 			}
 
+			setSentUsers((prev) => [...prev, ...newUsers]);
 			toast.success(`Successfully sent message to ${data?.length} users`);
 			setUsers([]);
 		} catch (error) {
@@ -231,7 +228,7 @@ export function MessageCard() {
 							id="message"
 							required
 							placeholder="Hello from the abyss"
-							maxLength={4000} // Limit message length
+							maxLength={4000}
 						/>
 					</div>
 
@@ -243,7 +240,7 @@ export function MessageCard() {
 								value={usernameInput}
 								onChange={(e) =>
 									setUsernameInput(e.target.value.substring(0, 2000))
-								} // Limit input length
+								}
 								placeholder="Enter usernames (comma or new line separated)"
 								className="flex-1"
 							/>
@@ -275,7 +272,18 @@ export function MessageCard() {
 
 					{users.length > 0 && (
 						<div className="grid gap-2">
-							<Label>Recipients ({users.length})</Label>
+							<div className="flex items-center justify-between">
+								<Label>Recipients ({users.length})</Label>
+								<Button
+									type="button"
+									variant="destructive"
+									size="sm"
+									onClick={removeAllUsers}
+									disabled={isSubmitting}
+								>
+									Remove All
+								</Button>
+							</div>
 							<div className="flex flex-wrap gap-1">
 								{users.map((user) => (
 									<Badge

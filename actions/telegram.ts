@@ -211,18 +211,23 @@ export async function messageUsers(
 			return { error: "No valid usernames provided" };
 		}
 
-		const sentMessages = await Promise.all(
-			safeUsers.map(async (username) => {
-				try {
-					const user = await client.getInputEntity(username);
-					return client.sendMessage(user, { message: safeMessage });
-				} catch (userError) {
-					// Handle individual user errors without failing the entire batch
-					console.error(`Failed to send message to ${username}:`, userError);
-					return { error: `Failed to send to ${username}`, username };
-				}
-			}),
-		);
+		const delay = (ms: number) =>
+			new Promise((resolve) => setTimeout(resolve, ms));
+
+		const sentMessages = [];
+		for (const username of safeUsers) {
+			try {
+				const user = await client.getInputEntity(username);
+				const result = await client.sendMessage(user, { message: safeMessage });
+				sentMessages.push(result);
+				// Delay to prevent hitting Telegram's rate limits
+				await delay(1500);
+			} catch (userError) {
+				// Handle individual user errors without failing the entire batch
+				console.error(`Failed to send message to ${username}:`, userError);
+				sentMessages.push({ error: `Failed to send to ${username}`, username });
+			}
+		}
 
 		return { data: sentMessages };
 	} catch (error) {
