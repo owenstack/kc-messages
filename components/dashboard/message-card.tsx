@@ -28,35 +28,25 @@ export function MessageCard() {
 	const addUsernames = (input: string) => {
 		if (!input.trim()) return;
 
-		const parts = [];
-		let currentPart = "";
-
-		for (let i = 0; i < input.length; i++) {
-			const char = input[i];
-			if (char === "," || char === "\n") {
-				if (currentPart.trim()) {
-					parts.push(currentPart.trim());
-				}
-				currentPart = "";
-			} else {
-				currentPart += char;
-			}
-		}
-
-		if (currentPart.trim()) {
-			parts.push(currentPart.trim());
-		}
+		// Use regex to split by commas, newlines, or any whitespace
+		const parts = input
+			.split(/[,\s\n]+/)
+			.map((part) => part.trim())
+			.filter((part) => part !== ""); // Filter out empty strings
 
 		const newUsernames = parts.slice(0, 100);
 
 		setUsers((prev) => {
 			const uniqueUsers = [...prev];
 			for (const name of newUsernames) {
+				// Ensure we don't exceed 100 users
+				if (uniqueUsers.length >= 100) break;
 				if (!uniqueUsers.includes(name)) {
 					uniqueUsers.push(name);
 				}
 			}
-			return uniqueUsers.slice(0, 100);
+			// No need to slice again here as we controlled the input length
+			return uniqueUsers;
 		});
 
 		setUsernameInput("");
@@ -80,26 +70,38 @@ export function MessageCard() {
 					const data = JSON.parse(text);
 					let extractedUsernames: string[] = [];
 
-					if (Array.isArray(data)) {
-						extractedUsernames = data
-							.filter((item) => typeof item === "string" && item.trim() !== "")
-							.map((item) => String(item).trim())
-							.slice(0, 100);
-					} else if (typeof data === "object" && data !== null) {
-						extractedUsernames = Object.values(data)
-							.filter((item) => typeof item === "string" && item.trim() !== "")
-							.map((item) => String(item).trim())
-							.slice(0, 100);
-					}
+					// Improved JSON handling to extract strings robustly
+					const extractStrings = (value: unknown): string[] => {
+						if (typeof value === "string" && value.trim() !== "") {
+							return [value.trim()];
+						}
+						if (Array.isArray(value)) {
+							return value.flatMap(extractStrings);
+						}
+						if (typeof value === "object" && value !== null) {
+							return Object.values(value).flatMap(extractStrings);
+						}
+						return [];
+					};
+					extractedUsernames = extractStrings(data)
+						// Split potential multi-username strings within JSON values
+						.flatMap((username) =>
+							username
+								.split(/[,\s\n]+/)
+								.map((part) => part.trim())
+								.filter((part) => part !== ""),
+						)
+						.slice(0, 100);
 
 					setUsers((prev) => {
 						const uniqueUsers = [...prev];
 						for (const name of extractedUsernames) {
+							if (uniqueUsers.length >= 100) break;
 							if (!uniqueUsers.includes(name)) {
 								uniqueUsers.push(name);
 							}
 						}
-						return uniqueUsers.slice(0, 100);
+						return uniqueUsers;
 					});
 
 					toast.success(
@@ -109,37 +111,23 @@ export function MessageCard() {
 					toast.error("Invalid JSON format");
 				}
 			} else {
-				const lines = [];
-				let currentLine = "";
-
-				for (let i = 0; i < text.length; i++) {
-					const char = text[i];
-					if (char === "\n") {
-						if (currentLine.trim()) {
-							lines.push(currentLine.trim());
-						}
-						currentLine = "";
-					} else {
-						currentLine += char;
-					}
-				}
-
-				if (currentLine.trim()) {
-					lines.push(currentLine.trim());
-				}
-
-				const extractedUsernames = lines.slice(0, 100);
+				// Use regex to split by commas, newlines, or any whitespace for text files
+				const extractedUsernames = text
+					.split(/[,\s\n]+/)
+					.map((part) => part.trim())
+					.filter((part) => part !== "") // Filter out empty strings
+					.slice(0, 100);
 
 				setUsers((prev) => {
 					const uniqueUsers = [...prev];
 					for (const name of extractedUsernames) {
+						if (uniqueUsers.length >= 100) break;
 						if (!uniqueUsers.includes(name)) {
 							uniqueUsers.push(name);
 						}
 					}
-					return uniqueUsers.slice(0, 100);
+					return uniqueUsers;
 				});
-
 				toast.success(
 					`Added ${extractedUsernames.length} usernames from text file`,
 				);
